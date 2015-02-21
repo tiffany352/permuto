@@ -1,6 +1,15 @@
-module Lexer (readNumber, readAtom, readString, readClosure, Expr(..), showExprs, readExpr, readSep, readExprs) where
+module Lexer (Result(..), maybeResult, readNumber, readAtom, readString, readClosure, Expr(..), showExprs, readExpr, readSep, readExprs) where
 
 import Data.Char
+
+type Result a = Either [Char] a
+
+maybeResult :: [Char] -> Maybe a -> Result a
+maybeResult s (Just x) = Right x
+maybeResult s Nothing = Left s
+
+eof :: Result a
+eof = Left "Unexpected EOF"
 
 indexOf :: Char -> [Char] -> Maybe Int
 indexOf c (x:xs) =
@@ -9,27 +18,27 @@ indexOf c (x:xs) =
     else fmap ((+)1) $ indexOf c xs
 indexOf c [] = Nothing
 
-readNumberContent :: Int -> [Char] -> Maybe (Int, [Char])
+readNumberContent :: Int -> [Char] -> Result (Int, [Char])
 readNumberContent acc (c:s) =
     case indexOf c "0123456789" of
       Just n -> readNumberContent (acc*10+n) s
-      Nothing -> Just (acc, c:s)
-readNumberContent acc [] = Just (acc, [])
+      Nothing -> Right (acc, c:s)
+readNumberContent acc [] = Right (acc, [])
 
-readNumberStart :: [Char] -> Maybe (Int, [Char])
+readNumberStart :: [Char] -> Result (Int, [Char])
 readNumberStart (c:s) =
     if isDigit c
     then readNumberContent 0 (c:s)
-    else Nothing
-readNumberStart [] = Nothing
+    else Left "Expected digit"
+readNumberStart [] = eof
 
-readNumber :: [Char] -> Maybe (Int, [Char])
+readNumber :: [Char] -> Result (Int, [Char])
 readNumber (c:s) =
     case c of
       '-' -> fmap (\(n,t) -> (-n,t)) $ readNumberStart s
       '+' -> readNumberStart s
       _ -> readNumberStart (c:s)
-readNumber [] = Nothing
+readNumber [] = eof
 
 oneOf c (x:xs) =
     if c == x
@@ -38,48 +47,48 @@ oneOf c (x:xs) =
 oneOf c [] =
     False
 
-readAtomTail :: [Char] -> Maybe ([Char], [Char])
+readAtomTail :: [Char] -> Result ([Char], [Char])
 readAtomTail (c:s) =
     if isAlphaNum c || oneOf c "`~!@#$%^&*()-_=+,<.>/?|"
     then fmap (\(xs, t) -> (c:xs, t)) $ readAtomTail s
-    else Just ([], c:s)
-readAtomTail [] = Just ([], [])
+    else Right ([], c:s)
+readAtomTail [] = Right ([], [])
 
-readAtom :: [Char] -> Maybe ([Char], [Char])
+readAtom :: [Char] -> Result ([Char], [Char])
 readAtom (c:s) =
     if isAlpha c || oneOf c "`~!@#$%^&*()-_=+,<.>/?|"
     then fmap (\(xs, t) -> (c:xs, t)) $ readAtomTail s
-    else Just ([], (c:s))
-readAtom [] = Nothing
+    else Right ([], (c:s))
+readAtom [] = eof
 
-readStringInternal :: [Char] -> [Char] -> Maybe ([Char], [Char])
+readStringInternal :: [Char] -> [Char] -> Result ([Char], [Char])
 readStringInternal acc (c:s) =
     case c of
-      '"' -> Just (acc, s)
+      '"' -> Right (acc, s)
       _ -> readStringInternal (acc ++ [c]) s
-readStringInternal acc [] = Nothing
+readStringInternal acc [] = eof
 
-readString :: [Char] -> Maybe ([Char], [Char])
+readString :: [Char] -> Result ([Char], [Char])
 readString (c:s) | c == '"' =
     readStringInternal "" s
-readString _ = Nothing
+readString _ = Left "Expected string start"
 
-readClosureInternal :: [Expr] -> [Char] -> Maybe ([Expr], [Char])
+readClosureInternal :: [Expr] -> [Char] -> Result ([Expr], [Char])
 readClosureInternal es s =
     case readSep s of
-      [] -> Nothing
-      ']':t -> Just (es, t)
+      [] -> eof
+      ']':t -> Right (es, t)
       xs -> readExpr xs >>= \(e, t) -> readClosureInternal (es++[e]) t
 
-readClosure :: [Char] -> Maybe ([Expr], [Char])
+readClosure :: [Char] -> Result ([Expr], [Char])
 readClosure (c:s) | c == '[' =
     readClosureInternal [] s
-readClosure _ = Nothing
+readClosure _ = Left "Expected ["
 
-readQuote :: [Char] -> Maybe (Expr, [Char])
+readQuote :: [Char] -> Result (Expr, [Char])
 readQuote (c:s) | c == '\'' =
     readExpr s
-readQuote _ = Nothing
+readQuote _ = Left "Expected '"
 
 data Expr = Number Int | Atom [Char] | String [Char] | Quote [Expr]
 
@@ -96,26 +105,27 @@ showExprs :: [Expr] -> [Char]
 showExprs (e:es) = foldl (\a-> \b-> a ++ " " ++ (show b)) (show e) es
 showExprs [] = ""
 
-orElse :: Maybe a -> Maybe a -> Maybe a
+orElse :: Result a -> Result a -> Result a
 orElse a b = case a of
-               Just x -> Just x
-               Nothing -> b
+               Right x -> Right x
+               Left _ -> b
 
-readExpr :: [Char] -> Maybe (Expr, [Char])
+readExpr :: [Char] -> Result (Expr, [Char])
 readExpr s =
-    foldl orElse Nothing [ readQuote s >>= \(v,t) -> Just (Quote [v],t)
-                         , readClosure s >>= \(v,t) -> Just (Quote v, t)
-                         , readString s >>= \(v,t) -> Just (String v, t)
-                         , readNumber s >>= \(v,t) -> Just (Number v, t)
-                         , readAtom s >>= \(v,t) -> Just (Atom v, t) ]
+    foldl orElse (Left "No matched rule")
+              [ readQuote s >>= \(v,t) -> Right (Quote [v],t)
+              , readClosure s >>= \(v,t) -> Right (Quote v, t)
+              , readString s >>= \(v,t) -> Right (String v, t)
+              , readNumber s >>= \(v,t) -> Right (Number v, t)
+              , readAtom s >>= \(v,t) -> Right (Atom v, t) ]
 
 readSep :: [Char] -> [Char]
 readSep (c:s) | isSpace c = readSep s
 readSep s = s
 
-readExprs :: [Char] -> Maybe ([Expr], [Char])
+readExprs :: [Char] -> Result ([Expr], [Char])
 readExprs s =
     readExpr s >>= (\(e,t) ->
       case readSep t of
-        [] -> Just ([e],t)
+        [] -> Right ([e],t)
         xs -> fmap (\(es,t) -> (e:es,t)) $ readExprs xs)
