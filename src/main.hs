@@ -2,6 +2,7 @@ import Lexer
 import Eval
 import Data.Map as Map
 import Data.Maybe
+import Control.Monad as Monad
 
 read s = case readExprs s of
            Just (es, []) -> Just es
@@ -20,7 +21,7 @@ loop c = do
 
 main = do
   let c = Map.fromList [
-           ("+", \(Number a:Number b:st) -> Just $ push (Number $ a+b) st),
+           ("+", \(a:b:st) -> Monad.liftM2 (+) (number a) (number b) >>= Just . (flip push st) . Number),
            ("show", \(a:st) -> Just $ push (String $ show a) st),
            ("i", \(Quote cl:st) -> evalExprs c st cl),
            ("zap", \(v:st) -> Just st),
@@ -29,6 +30,6 @@ main = do
            ("dip", \(Quote a:b:st) -> fmap (push b) $ evalExprs c st a),
            ("unit", \(a:st) -> Just $ Quote [a]:st),
            ("cat", \(a:b:st) -> Just $ Quote (unquote b ++ unquote a):st),
-           ("cons", \(a:b:st) -> Just $ Quote ([Quote $ unquote b] ++ unquote a):st)
+           ("cons", \(a:b:st) -> Just $ Quote (b:unquote a):st)
           ]
   loop c

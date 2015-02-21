@@ -87,6 +87,8 @@ instance Show Expr where
     show (Number n) = show n
     show (Atom a) = a
     show (String s) = show s
+    show (Quote [Number n]) = show n
+    show (Quote [String s]) = show s
     show (Quote (q:qs)) = (foldl (\a-> \b-> a++" "++(show b)) ("["++show q) qs) ++ "]"
     show (Quote []) = "[]"
 
