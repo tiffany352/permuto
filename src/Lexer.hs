@@ -58,7 +58,7 @@ readAtom :: [Char] -> Result ([Char], [Char])
 readAtom (c:s) =
     if isAlpha c || oneOf c "`~!@#$%^&*()-_=+,<.>/?|"
     then fmap (\(xs, t) -> (c:xs, t)) $ readAtomTail s
-    else Right ([], (c:s))
+    else Left "Expected identifier start"
 readAtom [] = eof
 
 readStringInternal :: [Char] -> [Char] -> Result ([Char], [Char])
@@ -112,7 +112,7 @@ orElse a b = case a of
 
 readExpr :: [Char] -> Result (Expr, [Char])
 readExpr s =
-    foldl orElse (Left "No matched rule")
+    foldl (flip orElse) (Left "No matched rule")
               [ readQuote s >>= \(v,t) -> Right (Quote [v],t)
               , readClosure s >>= \(v,t) -> Right (Quote v, t)
               , readString s >>= \(v,t) -> Right (String v, t)
