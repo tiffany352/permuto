@@ -1,8 +1,30 @@
-module Lexer (Result(..), maybeResult, readNumber, readAtom, readString, readClosure, Expr(..), showExprs, readExpr, readSep, readExprs) where
+module Lexer (Result(..), Context(..), Stack, Expr(..), showExprs, maybeResult, readNumber, readAtom,
+                    readString, readClosure, readExpr, readSep, readExprs) where
 
 import Data.Char
+import qualified Data.Map
 
 type Result a = Either [Char] a
+
+newtype Context = Context { funcs :: Data.Map.Map [Char] (Stack -> Result Stack) }
+
+type Stack = [Expr]
+
+data Expr = Number Int | Atom [Char] | String [Char] | RawQuote [Expr] | Quote (Context, [Expr])
+
+showExprs :: [Expr] -> [Char]
+showExprs (e:es) = foldl (\a-> \b-> a ++ " " ++ (show b)) (show e) es
+showExprs [] = ""
+
+instance Show Expr where
+    show (Number n) = show n
+    show (Atom a) = a
+    show (String s) = show s
+    show (RawQuote [Number n]) = show n
+    show (RawQuote [String s]) = show s
+    show (RawQuote (q:qs)) = (foldl (\a-> \b-> a++" "++(show b)) ("["++show q) qs) ++ "]"
+    show (RawQuote []) = "[]"
+    show (Quote (c,e)) = show $ RawQuote e
 
 maybeResult :: [Char] -> Maybe a -> Result a
 maybeResult s (Just x) = Right x
@@ -75,21 +97,6 @@ readQuote :: [Char] -> Result (Expr, [Char])
 readQuote (c:s) | c == '\'' = readExpr s
 readQuote _ = Left "Expected '"
 
-data Expr = Number Int | Atom [Char] | String [Char] | Quote [Expr]
-
-instance Show Expr where
-    show (Number n) = show n
-    show (Atom a) = a
-    show (String s) = show s
-    show (Quote [Number n]) = show n
-    show (Quote [String s]) = show s
-    show (Quote (q:qs)) = (foldl (\a-> \b-> a++" "++(show b)) ("["++show q) qs) ++ "]"
-    show (Quote []) = "[]"
-
-showExprs :: [Expr] -> [Char]
-showExprs (e:es) = foldl (\a-> \b-> a ++ " " ++ (show b)) (show e) es
-showExprs [] = ""
-
 orElse :: Result a -> Result a -> Result a
 orElse (Right a) _ = Right a
 orElse (Left _) b = b
@@ -97,8 +104,8 @@ orElse (Left _) b = b
 readExpr :: [Char] -> Result (Expr, [Char])
 readExpr s =
     foldl (flip orElse) (Left "No matched rule")
-              [ readQuote s >>= \(v,t) -> Right (Quote [v],t)
-              , readClosure s >>= \(v,t) -> Right (Quote v, t)
+              [ readQuote s >>= \(v,t) -> Right (RawQuote [v],t)
+              , readClosure s >>= \(v,t) -> Right (RawQuote v, t)
               , readString s >>= \(v,t) -> Right (String v, t)
               , readNumber s >>= \(v,t) -> Right (Number v, t)
               , readAtom s >>= \(v,t) -> Right (Atom v, t) ]
