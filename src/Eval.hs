@@ -12,12 +12,12 @@ wrapFunc v c s = fmap (\(s',_) -> s') $ evalExprs c s v
 
 libDef :: Stack -> Result (Stack, Context)
 libDef (n:Quote (c,v):st) =
-    case string n of
-      Just n' ->
+    case n of
+      Quote (_, [Atom n']) ->
           Right (st, Context $ Map.insert n'
                  (wrapFunc v c) (funcs c))
-      Nothing -> funcError "def" "Parameter 2 must be string"
-libDef (n:v:st) = funcError "def" "Parameter 1 must be quoted"
+      _ -> funcError "def" "Parameter 1 must be quoted atom"
+libDef (n:v:st) = funcError "def" "Parameter 2 must be quoted"
 libDef _ = funcError "def" "Requires two parameters"
 libUnit c (a:st) = Right (Quote (c,[a]) : st, c)
 libUnit c _ = funcError "unit" "Empty stack"
