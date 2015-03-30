@@ -1,11 +1,13 @@
-module Lexer (Error(..), eof, expected, funcError, Result(..), Context(..), Stack, Expr(..),
+module Lexer (Error(..), eof, expected, funcError, nyi, Result(..), Context(..), Stack, Expr(..),
               showExprs, maybeResult, readNumber, readAtom, readString, readClosure, readExpr,
               readSep, readExprs) where
 
+import qualified Data.List
 import Data.Char
 import qualified Data.Map
 
 data Error = EOF | Expected [Char] | UnknownExpression | Func ([Char], [Char]) | User [Char]
+           | NYI [Char]
 
 instance Show Error where
     show EOF = "End of file"
@@ -13,6 +15,7 @@ instance Show Error where
     show UnknownExpression = "Unknown expression"
     show (Func (f, s)) = "In " ++ f ++ ": " ++ s
     show (User s) = s
+    show (NYI s) = "Not yet implemented: " ++ s
 
 eof :: Result a
 eof = Left EOF
@@ -22,6 +25,9 @@ expected s = Left $ Expected s
 
 funcError :: [Char] -> [Char] -> Result a
 funcError f s = Left $ Func (f, s)
+
+nyi :: [Char] -> Result a
+nyi s = Left $ NYI s
 
 type Result a = Either Error a
 
@@ -103,15 +109,23 @@ readClosureInternal es s =
     case readSep s of
       [] -> eof
       ']':t -> Right (es, t)
-      xs -> readExpr xs >>= \(e, t) -> readClosureInternal (es++[e]) t
+      xs -> readExpr xs >>= \(e, t) -> readClosureInternal (es++e) t
 
 readClosure :: [Char] -> Result ([Expr], [Char])
 readClosure (c:s) | c == '[' = readClosureInternal [] s
 readClosure _ = expected "["
 
 readQuote :: [Char] -> Result (Expr, [Char])
-readQuote (c:s) | c == '\'' = readExpr s
+readQuote (c:s) | c == '\'' = readAtom s >>= \(v,t) -> Right (Atom v, t)
 readQuote _ = expected "'"
+
+linesInternal :: [Char] -> [Char] -> [[Char]]
+linesInternal (c:s) acc | c == '\n' = acc : linesInternal s []
+linesInternal (c:s) acc = linesInternal s (c:acc)
+linesInternal [] acc = [acc]
+
+lines :: [Char] -> [[Char]]
+lines s = linesInternal s []
 
 orElse :: Result a -> Result a -> Result a
 orElse (Right a) _ = Right a
@@ -119,14 +133,39 @@ orElse _ (Right a) = Right a
 orElse (Left EOF) _ = Left EOF
 orElse (Left _) b = b
 
-readExpr :: [Char] -> Result (Expr, [Char])
+readBlockDelim :: [Char] -> [Char] -> Result ([Char], [Char])
+readBlockDelim (c:s) a | c == '"' = readStringInternal [] s >>= \(xs,s') -> readBlockDelim s' (a ++ c:xs ++ "\"")
+readBlockDelim (c:s) a | c == ':' = Right (a, s)
+readBlockDelim (c:s) a | c == '\n' = expected ":"
+readBlockDelim (c:s) a = readBlockDelim s (a++[c])
+readBlockDelim [] a = eof
+
+readBlockEnd :: [Char] -> [Char] -> Result ([Char], [Char])
+readBlockEnd (c:s) a | c == '\n' = Right (a, s)
+readBlockEnd (c:s) a = readBlockEnd s (a++[c])
+readBlockEnd [] a = Right (a, [])
+
+readBlock :: [Char] -> Result ([Expr], [Char])
+readBlock s = do
+  (l, r) <- readBlockDelim s []
+  (r', t) <- readBlockEnd r []
+  (w, l') <- readAtom l
+  (lx, lr) <- readExprs $ readSep l'
+  (rx, rr) <- readExprs $ readSep r'
+  if lr /= [] || rr /= []
+  then Left $ User "Junk data after expression"
+  else Right ()
+  return ([RawQuote rx, RawQuote lx, Atom w], t)
+
+readExpr :: [Char] -> Result ([Expr], [Char])
 readExpr s =
     foldl (flip orElse) (Left UnknownExpression)
-              [ readQuote s >>= \(v,t) -> Right (RawQuote [v],t)
-              , readClosure s >>= \(v,t) -> Right (RawQuote v, t)
-              , readString s >>= \(v,t) -> Right (String v, t)
-              , readNumber s >>= \(v,t) -> Right (Number v, t)
-              , readAtom s >>= \(v,t) -> Right (Atom v, t) ]
+              [ readQuote s   >>= \(v,t) -> Right ([RawQuote [v]],t)
+              , readClosure s >>= \(v,t) -> Right ([RawQuote v], t)
+              , readString s  >>= \(v,t) -> Right ([String v], t)
+              , readNumber s  >>= \(v,t) -> Right ([Number v], t)
+              , readAtom s    >>= \(v,t) -> Right ([Atom v], t)
+              , readBlock s ]
 
 readSep :: [Char] -> [Char]
 readSep (c:s) | isSpace c = readSep s
@@ -136,5 +175,5 @@ readExprs :: [Char] -> Result ([Expr], [Char])
 readExprs s =
     readExpr s >>= (\(e,t) ->
       case readSep t of
-        [] -> Right ([e],t)
-        xs -> fmap (\(es,t) -> (e:es,t)) $ readExprs xs)
+        [] -> Right (e,t)
+        xs -> fmap (\(es,t) -> (e ++ es,t)) $ readExprs xs)
