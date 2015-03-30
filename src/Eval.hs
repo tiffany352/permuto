@@ -16,15 +16,15 @@ libDef (n:Quote (c,v):st) =
       Just n' ->
           Right (st, Context $ Map.insert n'
                  (wrapFunc v c) (funcs c))
-      Nothing -> Left "Right parameter of def must be string"
-libDef (n:v:st) = Left "Left parameter of def must be quoted"
-libDef _ = Left "def requires two parameters"
+      Nothing -> funcError "def" "Parameter 2 must be string"
+libDef (n:v:st) = funcError "def" "Parameter 1 must be quoted"
+libDef _ = funcError "def" "Requires two parameters"
 libUnit c (a:st) = Right (Quote (c,[a]) : st, c)
-libUnit c _ = Left "Can't unit empty stack"
+libUnit c _ = funcError "unit" "Empty stack"
 libCat c (a:b:st) = Right (Quote (c, unquote b ++ unquote a):st, c)
-libCat c _ = Left "cat requires two parameters"
+libCat c _ = funcError "cat" "Requires two parameters"
 libCons c (a:b:st) = Right (Quote (c, b:unquote a):st, c)
-libCons c _ = Left "cons requires two parameters"
+libCons c _ = funcError "cons" "Requires two parameters"
 
 evalExpr :: Context -> Stack -> Expr -> Result (Stack, Context)
 evalExpr c st (Atom "def") = libDef st
@@ -34,7 +34,7 @@ evalExpr c st (Atom "cons") = libCons c st
 evalExpr c st (Atom a) =
     case Map.lookup a (funcs c) of
       Just x -> fmap (\st' -> (st', c)) $ x st
-      Nothing -> Left $ "No such atom '"++a++"'"
+      Nothing -> Left $ User $ "No such atom '"++a++"'"
 evalExpr c st (RawQuote q) =
     Right (push (Quote (c, q)) st, c)
 evalExpr c st (Quote (c',q)) =

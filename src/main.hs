@@ -9,40 +9,40 @@ read s = case readExprs s of
            Right (es, []) -> Right es
            Left x -> Left x
 
-print :: Result ([Expr], Context) -> [Char]
-print (Right (st,_)) = Lexer.showExprs . reverse $ st
-print (Left e) = e
-
-once c s = Main.print $ Main.read s >>= evalExprs c []
-
-loop c = do
+loop c acc = do
   line <- getLine
-  let r = Main.read line >>= evalExprs c []
-  putStrLn $ Main.print r
+  let acc' = (acc ++ line)
+  let r = Main.read acc' >>= evalExprs c []
   case r of
-    Right (_, c') -> loop c'
-    _ -> loop c
+    Right (x, c') -> do
+           putStrLn $ Lexer.showExprs x
+           loop c' []
+    Left EOF -> do
+           loop c $ acc' ++ "\n"
+    Left x -> do
+           putStrLn $ show x
+           loop c []
 
 libAdd (a:b:st) =
-    maybeResult "Expected number"
+    maybeResult (User "Expected number")
               (Monad.liftM2 (+) (number a) (number b)
                >>= Just . (flip push st) . Number)
-libAdd _ = Left "add requires two parameters"
+libAdd _ = funcError "add" "Requires two parameters"
 libShow (a:st) = Right $ push (String $ show a) st
-libShow _ = Left "show requires a parameter"
+libShow _ = funcError "show" "Requires a parameter"
 libI (Quote (c,q):st) = fmap (\(st', c)-> st') $ evalExprs c st q
-libI (RawQuote q:st) = Left "Quote does not have context?"
-libI _ = Left "Quoted parameter required"
+libI (RawQuote q:st) = Left $ User "Quote does not have context?"
+libI _ = funcError "i" "Parameter must be quote"
 libZap (v:st) = Right st
-libZap _ = Left "Can't zap an empty stack"
+libZap _ = funcError "zap" "Empty stack"
 libDup (v:st) = Right $ v:v:st
-libDup _ = Left "Can't dup an empty stack"
+libDup _ = funcError "dup" "Empty stack"
 libSwap (a:b:st) = Right $ b:a:st
-libSwap _ = Left "swap requires two parameters"
+libSwap _ = funcError "swap" "Requires two parameters"
 libDip (Quote (c,q):b:st) = fmap (\(st',c)-> push b st') $ evalExprs c st q
-libDip (RawQuote q:b:st) = Left "Quote does not have context?"
-libDip (Quote q:st) = Left "dip requires two parameters"
-libDip _ = Left "First argument to dip must be quoted"
+libDip (RawQuote q:b:st) = Left $ User "Quote does not have context?"
+libDip (Quote q:st) = funcError "dip" "Requires two parameters"
+libDip _ = funcError "dip" "Parameter 1 must be quote"
 
 main = do
   let c = Context $ Map.fromList [
@@ -54,4 +54,4 @@ main = do
            ("swap", libSwap),
            ("dip", libDip)
           ]
-  loop c
+  loop c []

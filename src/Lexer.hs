@@ -1,10 +1,29 @@
-module Lexer (Result(..), Context(..), Stack, Expr(..), showExprs, maybeResult, readNumber, readAtom,
-                    readString, readClosure, readExpr, readSep, readExprs) where
+module Lexer (Error(..), eof, expected, funcError, Result(..), Context(..), Stack, Expr(..),
+              showExprs, maybeResult, readNumber, readAtom, readString, readClosure, readExpr,
+              readSep, readExprs) where
 
 import Data.Char
 import qualified Data.Map
 
-type Result a = Either [Char] a
+data Error = EOF | Expected [Char] | UnknownExpression | Func ([Char], [Char]) | User [Char]
+
+instance Show Error where
+    show EOF = "End of file"
+    show (Expected s) = "Expected one of " ++ s
+    show UnknownExpression = "Unknown expression"
+    show (Func (f, s)) = "In " ++ f ++ ": " ++ s
+    show (User s) = s
+
+eof :: Result a
+eof = Left EOF
+
+expected :: [Char] -> Result a
+expected s = Left $ Expected s
+
+funcError :: [Char] -> [Char] -> Result a
+funcError f s = Left $ Func (f, s)
+
+type Result a = Either Error a
 
 newtype Context = Context { funcs :: Data.Map.Map [Char] (Stack -> Result Stack) }
 
@@ -26,12 +45,9 @@ instance Show Expr where
     show (RawQuote []) = "[]"
     show (Quote (c,e)) = show $ RawQuote e
 
-maybeResult :: [Char] -> Maybe a -> Result a
+maybeResult :: Error -> Maybe a -> Result a
 maybeResult s (Just x) = Right x
 maybeResult s Nothing = Left s
-
-eof :: Result a
-eof = Left "Unexpected EOF"
 
 indexOf :: Char -> [Char] -> Maybe Int
 indexOf c (x:xs) | c == x = Just 0
@@ -47,7 +63,7 @@ readNumberContent acc [] = Right (acc, [])
 
 readNumberStart :: [Char] -> Result (Int, [Char])
 readNumberStart (c:s) | isDigit c = readNumberContent 0 (c:s)
-readNumberStart (c:s) = Left "Expected digit"
+readNumberStart (c:s) = expected "0-9"
 readNumberStart [] = eof
 
 readNumber :: [Char] -> Result (Int, [Char])
@@ -70,7 +86,7 @@ readAtomTail s = Right ([], s)
 readAtom :: [Char] -> Result ([Char], [Char])
 readAtom (c:s) | isIdent c =
     fmap (\(xs, t) -> (c:xs, t)) $ readAtomTail s
-readAtom (c:s) = Left "Expected identifier start"
+readAtom (c:s) = expected "~!@#$%^&*()-_=+,<.>/?|"
 readAtom [] = eof
 
 readStringInternal :: [Char] -> [Char] -> Result ([Char], [Char])
@@ -80,7 +96,7 @@ readStringInternal acc [] = eof
 
 readString :: [Char] -> Result ([Char], [Char])
 readString (c:s) | c == '"' = readStringInternal "" s
-readString _ = Left "Expected string start"
+readString _ = expected "\""
 
 readClosureInternal :: [Expr] -> [Char] -> Result ([Expr], [Char])
 readClosureInternal es s =
@@ -91,19 +107,21 @@ readClosureInternal es s =
 
 readClosure :: [Char] -> Result ([Expr], [Char])
 readClosure (c:s) | c == '[' = readClosureInternal [] s
-readClosure _ = Left "Expected ["
+readClosure _ = expected "["
 
 readQuote :: [Char] -> Result (Expr, [Char])
 readQuote (c:s) | c == '\'' = readExpr s
-readQuote _ = Left "Expected '"
+readQuote _ = expected "'"
 
 orElse :: Result a -> Result a -> Result a
 orElse (Right a) _ = Right a
+orElse _ (Right a) = Right a
+orElse (Left EOF) _ = Left EOF
 orElse (Left _) b = b
 
 readExpr :: [Char] -> Result (Expr, [Char])
 readExpr s =
-    foldl (flip orElse) (Left "No matched rule")
+    foldl (flip orElse) (Left UnknownExpression)
               [ readQuote s >>= \(v,t) -> Right (RawQuote [v],t)
               , readClosure s >>= \(v,t) -> Right (RawQuote v, t)
               , readString s >>= \(v,t) -> Right (String v, t)
