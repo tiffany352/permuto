@@ -3,10 +3,12 @@ import Eval
 import Data.Map as Map
 import Data.Maybe
 import Control.Monad as Monad
+import qualified System.Environment
 
 read :: [Char] -> Result [Expr]
 read s = case readExprs s of
            Right (es, []) -> Right es
+           Right (_, s) -> Left $ User $ "Junk data after expression: " ++ s
            Left x -> Left x
 
 loop c acc = do
@@ -22,6 +24,13 @@ loop c acc = do
     Left x -> do
            putStrLn $ show x
            loop c []
+
+runFile c f = do
+  contents <- readFile f
+  let r = Main.read contents >>= evalExprs c []
+  putStrLn $ case r of
+    Right (x, _) -> Lexer.showExprs x
+    Left x -> show x
 
 libAdd (a:b:st) =
     maybeResult (User "Expected number")
@@ -45,6 +54,7 @@ libDip (Quote q:st) = funcError "dip" "Requires two parameters"
 libDip _ = funcError "dip" "Parameter 1 must be quote"
 
 main = do
+  args <- System.Environment.getArgs
   let c = Context $ Map.fromList [
            ("+", libAdd),
            ("show", libShow),
@@ -54,4 +64,6 @@ main = do
            ("swap", libSwap),
            ("dip", libDip)
           ]
-  loop c []
+  if Prelude.null args
+  then loop c []
+  else Prelude.foldl (>>) (return ()) $ fmap (runFile c) args

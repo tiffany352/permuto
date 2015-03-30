@@ -175,5 +175,5 @@ readExprs :: [Char] -> Result ([Expr], [Char])
 readExprs s =
     readExpr s >>= (\(e,t) ->
       case readSep t of
-        [] -> Right (e,t)
+        [] -> Right (e,[])
         xs -> fmap (\(es,t) -> (e ++ es,t)) $ readExprs xs)
