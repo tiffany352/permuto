@@ -140,15 +140,33 @@ readBlockDelim (c:s) a | c == '\n' = expected ":"
 readBlockDelim (c:s) a = readBlockDelim s (a++[c])
 readBlockDelim [] a = eof
 
-readBlockEnd :: [Char] -> [Char] -> Result ([Char], [Char])
-readBlockEnd (c:s) a | c == '\n' = Right (a, s)
-readBlockEnd (c:s) a = readBlockEnd s (a++[c])
-readBlockEnd [] a = Right (a, [])
+readBlockOneLiner :: [Char] -> [Char] -> Result ([Char], [Char])
+readBlockOneLiner (c:s) a | c == '\n' = Right (a, s)
+readBlockOneLiner (c:s) a = readBlockOneLiner s (a++[c])
+readBlockOneLiner [] a = Right (a, [])
+
+readMultiBlock :: Int -> [Char] -> [Char] -> Result ([Char], [Char])
+readMultiBlock indent (c:s) a | c == '\n' =
+  case countSpaces s of
+    (n, s') | n >= indent -> readMultiBlock indent s' (a++"\n"++replicate n ' ')
+    _ -> Right (a, s)
+readMultiBlock indent (c:s) a = readMultiBlock indent s (a++[c])
+readMultiBlock indent s a = eof
+
+countSpaces :: [Char] -> (Int, [Char])
+countSpaces (c:s) | c == ' ' = let (i, s') = countSpaces s in (i+1, s')
+countSpaces s = (0, s)
+
+readBlockEnd :: [Char] -> Result ([Char], [Char])
+readBlockEnd (c:s) | c == '\n' = let (i, s') = countSpaces s in
+                                 readMultiBlock i s' []
+readBlockEnd (c:s) | isSpace c = readBlockEnd s
+readBlockEnd s = readBlockOneLiner s []
 
 readBlock :: [Char] -> Result ([Expr], [Char])
 readBlock s = do
   (l, r) <- readBlockDelim s []
-  (r', t) <- readBlockEnd r []
+  (r', t) <- readBlockEnd r
   (w, l') <- readAtom l
   (lx, lr) <- readExprs $ readSep l'
   (rx, rr) <- readExprs $ readSep r'
