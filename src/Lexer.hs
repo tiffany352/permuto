@@ -145,13 +145,25 @@ readBlockOneLiner (c:s) a | c == '\n' = Right (a, s)
 readBlockOneLiner (c:s) a = readBlockOneLiner s (a++[c])
 readBlockOneLiner [] a = Right (a, [])
 
-readMultiBlock :: Int -> [Char] -> [Char] -> Result ([Char], [Char])
-readMultiBlock indent (c:s) a | c == '\n' =
+-- 1. If there is a newline, check the number of following spaces.
+-- 2. If there are zero spaces, goto 1.
+-- 3. If the spaces are >= the indentation line, read all the
+--    characters up until the next newline into the accumulator
+--    and goto 1.
+-- 4. Otherwise, return the accumulator.
+
+readMultiBlock :: Int -> [Char] -> Result ([Char], [Char])
+readMultiBlock indent s =
   case countSpaces s of
-    (n, s') | n >= indent -> readMultiBlock indent s' (a++"\n"++replicate n ' ')
-    _ -> Right (a, s)
-readMultiBlock indent (c:s) a = readMultiBlock indent s (a++[c])
-readMultiBlock indent s a = eof
+    (0, '\n':s') -> readMultiBlock indent s'
+    (n, s') | n >= indent -> let (h, t) = readNewline s in
+                             fmap (\(h',t') -> (h ++ "\n" ++ h', t')) $ readMultiBlock indent t
+    _ -> Right ([], s)
+
+readNewline :: [Char] -> ([Char], [Char])
+readNewline (c:s) | c == '\n' = ([], s)
+readNewline (c:s) = let (h, t) = readNewline s in (c:h, t)
+readNewline [] = ([], [])
 
 countSpaces :: [Char] -> (Int, [Char])
 countSpaces (c:s) | c == ' ' = let (i, s') = countSpaces s in (i+1, s')
@@ -159,7 +171,7 @@ countSpaces s = (0, s)
 
 readBlockEnd :: [Char] -> Result ([Char], [Char])
 readBlockEnd (c:s) | c == '\n' = let (i, s') = countSpaces s in
-                                 readMultiBlock i s' []
+                                 readMultiBlock i s
 readBlockEnd (c:s) | isSpace c = readBlockEnd s
 readBlockEnd s = readBlockOneLiner s []
 
