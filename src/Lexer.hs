@@ -180,12 +180,19 @@ readBlock s = do
   (l, r) <- readBlockDelim s []
   (r', t) <- readBlockEnd r
   (w, l') <- readAtom l
-  (lx, lr) <- readExprs $ readSep l'
-  (rx, rr) <- readExprs $ readSep r'
+  let ls = readSep l'
+      rs = readSep r'
+  (lx, lr) <- case readExprs ls of
+                Left EOF -> Right ([], [])
+                x -> x
+  (rx, rr) <- readExprs rs
   if lr /= [] || rr /= []
   then Left $ User "Junk data after expression"
   else Right ()
-  return ([RawQuote rx, RawQuote lx, Atom w], t)
+  let ll = if ls /= []
+           then [RawQuote lx]
+           else []
+  return ([RawQuote rx] ++ ll ++ [Atom w], t)
 
 readExpr :: [Char] -> Result ([Expr], [Char])
 readExpr s =
