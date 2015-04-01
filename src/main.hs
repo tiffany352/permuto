@@ -4,6 +4,8 @@ import Data.Map as Map
 import Data.Maybe
 import Control.Monad as Monad
 import qualified System.Environment
+import qualified GHC.IO.Handle
+import qualified GHC.IO.Handle.FD
 
 read :: [Char] -> Result [Expr]
 read s = case readExprs s of
@@ -11,19 +13,27 @@ read s = case readExprs s of
            Right (_, s) -> Left $ User $ "Junk data after expression: " ++ s
            Left x -> Left x
 
+putStrLnNotEmpty [] = return ()
+putStrLnNotEmpty s = putStrLn s
+
 loop c acc = do
+  putStr $ if acc /= []
+           then ">> "
+           else "> "
+  GHC.IO.Handle.hFlush GHC.IO.Handle.FD.stdout
   line <- getLine
   let acc' = (acc ++ line)
   let r = Main.read acc' >>= evalExprs c []
-  case r of
-    Right (x, c') -> do
-           putStrLn $ Lexer.showExprs x
-           loop c' []
-    Left EOF -> do
-           loop c $ acc' ++ "\n"
-    Left x -> do
-           putStrLn $ show x
-           loop c []
+  case (line, r) of
+    ("quit", _) -> return ()
+    (' ':_, _) -> loop c $ acc' ++ "\n"
+    (_, Right (x, c')) -> do
+                   putStrLnNotEmpty $ Lexer.showExprs x
+                   loop c' []
+    (_, Left EOF) -> loop c $ acc' ++ "\n"
+    (_, Left x) -> do
+                   putStrLnNotEmpty $ show x
+                   loop c []
 
 runFile c f = do
   contents <- readFile f
