@@ -32,7 +32,7 @@ loop c acc i = do
   let r = Main.read acc' >>= evalExprs c []
   case (line, r) of
     ("quit", _) -> return ()
-    ([], _) -> loop c acc (max 0 $ i-1)
+    ([], _) | i > 0 -> loop c acc (i-1)
     (x, _) | hasBlock x -> loop c acc' (i+1)
     (_, _) | i > 0 -> loop c acc' i
     (_, Right (x, c')) -> do
